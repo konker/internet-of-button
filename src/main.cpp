@@ -16,6 +16,7 @@
 const unsigned long DEBOUNCE_DURATION_MS = 1000;
 const unsigned long LED_OK_INTERVAL_MS = 8000;
 const unsigned long LED_OK_DURATION_MS = 1000;
+const unsigned long LED_FLICKER_PERIOD = 100;
 const char *UDP_SERVER_CMD_DELIMITER = ":";
 
 const char *SETTINGS_NAME_WIFI_SSID = "settings_wifi_ssid";
@@ -78,6 +79,7 @@ void udp_server_callback(AsyncUDPPacket packet) {
     } else {
         packet.printf("[internet-of-button] ERROR 404 |%s|\n", cmd);
     }
+    packet.flush();
 }
 
 // -------------------------------------------------------------------
@@ -241,7 +243,13 @@ void loop() {
 
     // -------------------------------------------------------------------
     // Handle LED display
-    if (state.is_wifi_connected && millis() % LED_OK_INTERVAL_MS < LED_OK_DURATION_MS) {
+    if (rst_reading || state.rst_button_down && millis() % LED_FLICKER_PERIOD == 0) {
+        state.leds[0] = CRGB::Orange;
+        FastLED.show();
+    } else if (pwr_reading || state.pwr_button_down && millis() % LED_FLICKER_PERIOD == 0) {
+        state.leds[0] = CRGB::Blue;
+        FastLED.show();
+    } else if (state.is_wifi_connected && millis() % LED_OK_INTERVAL_MS < LED_OK_DURATION_MS) {
         state.leds[0] = CRGB::Green;
         FastLED.show();
     } else if (!state.is_wifi_connected) {
