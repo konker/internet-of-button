@@ -16,7 +16,6 @@
 const unsigned long DEBOUNCE_DURATION_MS = 1000;
 const unsigned long LED_OK_INTERVAL_MS = 8000;
 const unsigned long LED_OK_DURATION_MS = 1000;
-const unsigned long LED_FLICKER_PERIOD = 100;
 const char *UDP_SERVER_CMD_DELIMITER = ":";
 
 const char *SETTINGS_NAME_WIFI_SSID = "settings_wifi_ssid";
@@ -24,10 +23,13 @@ const char *SETTINGS_NAME_WIFI_PSK = "settings_wifi_psk";
 const char *SETTINGS_NAME_UDP_AUTH_KEY = "settings_udp_auth_key";
 const char *SETTINGS_NAME_UDP_LISTEN_PORT = "settings_udp_listen_port";
 
+const char *CMD_PING = "PING";
+const char *RESP_PING = "PONG";
 const char *CMD_POWER_BUTTON_LONG = "PWRL";
 const char *CMD_POWER_BUTTON_SHORT = "PWR";
 const char *CMD_RESET_BUTTON_SHORT = "RST";
 
+const unsigned short IOB_PING_DURATION_MS = 1000;
 const unsigned short IOB_BUTTON_DURATION_MS_SHORT = 300;
 const unsigned short IOB_BUTTON_DURATION_MS_LONG = 5000;
 
@@ -58,6 +60,13 @@ void udp_server_callback(AsyncUDPPacket packet) {
         return;
     }
 
+    if (!strcmp(CMD_PING, cmd)) {
+        Serial.println("[internet-of-button] PING");
+        state.ping_duration_ms = IOB_PING_DURATION_MS;
+        state.ping_start_time = millis();
+        state.ping = true;
+        packet.printf("OK |%s|\n", RESP_PING);
+    }
     if (!strcmp(CMD_POWER_BUTTON_LONG, cmd)) {
         Serial.println("[internet-of-button] PWR LONG");
         state.pwr_button_down_duration_ms = IOB_BUTTON_DURATION_MS_LONG;
@@ -86,32 +95,33 @@ void udp_server_callback(AsyncUDPPacket packet) {
 void wifi_callback(WiFiEvent_t event) {
     switch (event) {
         case SYSTEM_EVENT_STA_CONNECTED:
-            Serial.printf("[internet-of-button] WIFI CB: %d\n", event);
+            Serial.printf("[internet-of-button] WIFI connected\n");
+            Serial.printf("[internet-of-button] RSSI: %d ...\n", WiFi.RSSI());
             udp_server_start_listener(state.settings_udp_listen_port, udp_server_callback);
-            state.num_wifi_connect_failures = 0;
-            state.is_wifi_connected = true;
+            state.wifi_num_connect_failures = 0;
+            state.wifi_is_connected = true;
             state.is_udp_listening = true;
             break;
         case SYSTEM_EVENT_STA_DISCONNECTED:
-            Serial.printf("[internet-of-button] WIFI CB: %d\n", event);
+            Serial.printf("[internet-of-button] WIFI disconnected\n");
             udp_server_stop_listener();
-            state.num_wifi_connect_failures++;
-            state.is_wifi_connected = false;
+            state.wifi_num_connect_failures++;
+            state.wifi_is_connected = false;
             state.is_udp_listening = false;
 
             // Attempt to reconnect
-            delay(1000 * state.num_wifi_connect_failures);
+            delay(1000 * state.wifi_num_connect_failures);
             WiFi.mode(WIFI_STA);
             WiFi.begin(state.settings_wifi_ssid, state.settings_wifi_psk);
             Serial.printf("[internet-of-button] Connecting to SSID: |%s| ...\n", state.settings_wifi_ssid);
             break;
         case SYSTEM_EVENT_STA_GOT_IP:
         case SYSTEM_EVENT_GOT_IP6:
-            Serial.printf("[internet-of-button] WIFI CB: %d\n", event);
+            Serial.printf("[internet-of-button] WIFI got IP address\n");
             state.wifi_ip_address = WiFi.localIP();
             break;
         case SYSTEM_EVENT_STA_LOST_IP:
-            Serial.printf("[internet-of-button] WIFI CB: %d\n", event);
+            Serial.printf("[internet-of-button] WIFI lost IP address\n");
             state.wifi_ip_address = (new IPAddress())->fromString("0.0.0.0");
             break;
         default:
@@ -173,18 +183,18 @@ void setup() {
     wifi_init(wifi_callback);
     WiFi.mode(WIFI_STA);
     WiFi.begin(state.settings_wifi_ssid, state.settings_wifi_psk);
+    Serial.printf("[internet-of-button] RSSI: %d ...\n", WiFi.RSSI());
     Serial.printf("[internet-of-button] Connecting to SSID: |%s| ...\n", state.settings_wifi_ssid);
 }
 
 
 void loop() {
     // -------------------------------------------------------------------
-    int pwr_reading = digitalRead(PIN_PWR_IN);
+    const int pwr_reading = digitalRead(PIN_PWR_IN);
     if (pwr_reading == LOW) {
         // Forward the physical power button press to the motherboard
         digitalWrite(PIN_PWR_OUT, LOW);
-    }
-    else if (state.pwr_button_down) {
+    } else if (state.pwr_button_down) {
         if (state.pwr_button_down_start_time + state.pwr_button_down_duration_ms > millis()) {
             // Simulate power button press to the motherboard
             Serial.println("[internet-of-button] PWR DOWN");
@@ -194,18 +204,16 @@ void loop() {
             state.pwr_button_down = false;
             digitalWrite(PIN_PWR_OUT, HIGH);
         }
-    }
-    else {
+    } else {
         digitalWrite(PIN_PWR_OUT, HIGH);
     }
 
     // -------------------------------------------------------------------
-    int rst_reading = digitalRead(PIN_RST_IN);
+    const int rst_reading = digitalRead(PIN_RST_IN);
     if (rst_reading == LOW) {
         // Forward the physical reset button press to the motherboard
         digitalWrite(PIN_RST_OUT, LOW);
-    }
-    else if (state.rst_button_down) {
+    } else if (state.rst_button_down) {
         if (state.rst_button_down_start_time + state.rst_button_down_duration_ms > millis()) {
             // Simulate reset button press to the motherboard
             Serial.println("[internet-of-button] RST DOWN");
@@ -215,44 +223,54 @@ void loop() {
             state.rst_button_down = false;
             digitalWrite(PIN_RST_OUT, HIGH);
         }
-    }
-    else {
+    } else {
         digitalWrite(PIN_RST_OUT, HIGH);
     }
 
     // -------------------------------------------------------------------
     int builtin_button_reading = digitalRead(BUTTON_BUILTIN);
-    if (builtin_button_reading != state.last_builtin_button_reading) {
-        state.last_builtin_button_debounce_time = millis();
-        state.last_builtin_button_reading = builtin_button_reading;
+    if (builtin_button_reading != state.builtin_button_last_reading) {
+        state.builtin_button_last_debounce_time = millis();
+        state.builtin_button_last_reading = builtin_button_reading;
     }
-    if (builtin_button_reading == HIGH || (millis() - state.last_builtin_button_debounce_time) > DEBOUNCE_DURATION_MS) {
+    if (builtin_button_reading == HIGH || (millis() - state.builtin_button_last_debounce_time) > DEBOUNCE_DURATION_MS) {
         if (builtin_button_reading != state.builtin_button_state) {
             state.builtin_button_state = builtin_button_reading;
-            state.last_builtin_button_reading = builtin_button_reading;
-            state.is_builtin_button_new_state = true;
+            state.builtin_button_last_reading = builtin_button_reading;
+            state.builtin_button_is_new_state = true;
         }
     }
 
     // Handle button press, if any
-    if (state.builtin_button_state == LOW && state.is_builtin_button_new_state) {
-        state.is_builtin_button_new_state = false;
+    if (state.builtin_button_state == LOW && state.builtin_button_is_new_state) {
+        state.builtin_button_is_new_state = false;
         // [TODO? switch wifi on/off?]
         // [TODO? wake from deep sleep?]
     }
 
     // -------------------------------------------------------------------
+    if (state.ping) {
+        if (millis() > state.ping_start_time + state.ping_duration_ms) {
+            state.ping = false;
+            state.ping_start_time = 0;
+        }
+    }
+
+    // -------------------------------------------------------------------
     // Handle LED display
-    if (rst_reading || state.rst_button_down && millis() % LED_FLICKER_PERIOD == 0) {
-        state.leds[0] = CRGB::Orange;
+    if (rst_reading == LOW || state.rst_button_down) {
+        state.leds[0] = CRGB::DeepPink;
         FastLED.show();
-    } else if (pwr_reading || state.pwr_button_down && millis() % LED_FLICKER_PERIOD == 0) {
-        state.leds[0] = CRGB::Blue;
+    } else if (pwr_reading == LOW || state.pwr_button_down) {
+        state.leds[0] = CRGB::DeepSkyBlue;
         FastLED.show();
-    } else if (state.is_wifi_connected && millis() % LED_OK_INTERVAL_MS < LED_OK_DURATION_MS) {
+    } else if (state.ping) {
+        state.leds[0] = CRGB::LemonChiffon;
+        FastLED.show();
+    } else if (state.wifi_is_connected && millis() % LED_OK_INTERVAL_MS < LED_OK_DURATION_MS) {
         state.leds[0] = CRGB::Green;
         FastLED.show();
-    } else if (!state.is_wifi_connected) {
+    } else if (!state.wifi_is_connected) {
         state.leds[0] = CRGB::Red;
         FastLED.show();
     } else {

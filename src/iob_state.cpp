@@ -3,19 +3,24 @@
 
 void iob_state_init(iob_state *state) {
     state->builtin_button_state = HIGH;
-    state->last_builtin_button_reading = LOW;
-    state->last_builtin_button_debounce_time = 0;
-    state->is_builtin_button_new_state = false;
+    state->builtin_button_last_reading = LOW;
+    state->builtin_button_last_debounce_time = 0;
+    state->builtin_button_is_new_state = false;
+
+    state->ping = false;
+    state->ping_start_time = 0;
+    state->ping_duration_ms = 0;
 
     state->pwr_button_down = false;
     state->pwr_button_down_start_time = 0;
     state->pwr_button_down_duration_ms = 0;
+
     state->rst_button_down = false;
     state->rst_button_down_start_time = 0;
     state->rst_button_down_duration_ms = 0;
 
     state->is_udp_listening = false;
-    state->is_wifi_connected = false;
+    state->wifi_is_connected = false;
     state->wifi_ip_address = (new IPAddress())->fromString("0.0.0.0");
 
     state->settings_wifi_ssid = nullptr;

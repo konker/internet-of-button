@@ -12,9 +12,13 @@ typedef struct iob_state {
 
     // Runtime state
     int builtin_button_state;
-    int last_builtin_button_reading;
-    unsigned long last_builtin_button_debounce_time;
-    bool is_builtin_button_new_state;
+    int builtin_button_last_reading;
+    unsigned long builtin_button_last_debounce_time;
+    bool builtin_button_is_new_state;
+
+    bool ping;
+    unsigned long ping_start_time;
+    unsigned long ping_duration_ms;
 
     bool pwr_button_down;
     unsigned long pwr_button_down_start_time;
@@ -25,10 +29,10 @@ typedef struct iob_state {
     unsigned long rst_button_down_duration_ms;
 
     bool is_udp_listening;
-    unsigned int num_wifi_connect_failures;
 
     // Wifi
-    bool is_wifi_connected;
+    bool wifi_is_connected;
+    unsigned int wifi_num_connect_failures;
     IPAddress wifi_ip_address;
 
     // Settings
