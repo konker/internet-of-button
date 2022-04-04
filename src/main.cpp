@@ -28,7 +28,7 @@ const char *CMD_POWER_BUTTON_SHORT = "PWR";
 const char *CMD_RESET_BUTTON_SHORT = "RST";
 
 const unsigned short IOB_BUTTON_DURATION_MS_SHORT = 300;
-const unsigned short IOB_BUTTON_DURATION_MS_LONG = 3000;
+const unsigned short IOB_BUTTON_DURATION_MS_LONG = 5000;
 
 // -------------------------------------------------------------------
 iob_state state;
@@ -101,6 +101,7 @@ void wifi_callback(WiFiEvent_t event) {
             delay(1000 * state.num_wifi_connect_failures);
             WiFi.mode(WIFI_STA);
             WiFi.begin(state.settings_wifi_ssid, state.settings_wifi_psk);
+            Serial.printf("[internet-of-button] Connecting to SSID: |%s| ...\n", state.settings_wifi_ssid);
             break;
         case SYSTEM_EVENT_STA_GOT_IP:
         case SYSTEM_EVENT_GOT_IP6:
@@ -122,10 +123,13 @@ void setup() {
     pinMode(RGBLED_BUILTIN, OUTPUT);
     pinMode(BUTTON_BUILTIN, INPUT_PULLUP);
 
-    pinMode(PIN_PWR_IN, INPUT);
+    pinMode(PIN_PWR_IN, INPUT_PULLUP);
     pinMode(PIN_PWR_OUT, OUTPUT);
     pinMode(PIN_RST_IN, INPUT_PULLUP);
     pinMode(PIN_RST_OUT, OUTPUT);
+
+    digitalWrite(PIN_PWR_OUT, HIGH);
+    digitalWrite(PIN_RST_OUT, HIGH);
 
     Serial.begin(9600);
     Serial.setDebugOutput(true);
@@ -155,6 +159,7 @@ void setup() {
         Serial.printf("[internet-of-button] FATAL ERROR: could not get setting: %s\n", SETTINGS_NAME_UDP_AUTH_KEY);
         return;
     }
+    Serial.println(state.settings_udp_auth_key);
 
     settings_get_int(&state.settings_udp_listen_port, SETTINGS_NAME_UDP_LISTEN_PORT);
     if (!state.settings_udp_listen_port) {
@@ -177,16 +182,7 @@ void loop() {
         // Forward the physical power button press to the motherboard
         digitalWrite(PIN_PWR_OUT, LOW);
     }
-
-    // -------------------------------------------------------------------
-    int rst_reading = digitalRead(PIN_RST_IN);
-    if (rst_reading == LOW) {
-        // Forward the physical reset button press to the motherboard
-        digitalWrite(PIN_RST_OUT, LOW);
-    }
-
-    // -------------------------------------------------------------------
-    if (state.pwr_button_down) {
+    else if (state.pwr_button_down) {
         if (state.pwr_button_down_start_time + state.pwr_button_down_duration_ms > millis()) {
             // Simulate power button press to the motherboard
             Serial.println("[internet-of-button] PWR DOWN");
@@ -197,9 +193,17 @@ void loop() {
             digitalWrite(PIN_PWR_OUT, HIGH);
         }
     }
+    else {
+        digitalWrite(PIN_PWR_OUT, HIGH);
+    }
 
     // -------------------------------------------------------------------
-    if (state.rst_button_down) {
+    int rst_reading = digitalRead(PIN_RST_IN);
+    if (rst_reading == LOW) {
+        // Forward the physical reset button press to the motherboard
+        digitalWrite(PIN_RST_OUT, LOW);
+    }
+    else if (state.rst_button_down) {
         if (state.rst_button_down_start_time + state.rst_button_down_duration_ms > millis()) {
             // Simulate reset button press to the motherboard
             Serial.println("[internet-of-button] RST DOWN");
@@ -209,6 +213,9 @@ void loop() {
             state.rst_button_down = false;
             digitalWrite(PIN_RST_OUT, HIGH);
         }
+    }
+    else {
+        digitalWrite(PIN_RST_OUT, HIGH);
     }
 
     // -------------------------------------------------------------------
